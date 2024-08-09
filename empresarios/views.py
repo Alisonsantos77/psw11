@@ -1,5 +1,5 @@
-from django.shortcuts import render,redirect
-from .models import Empresas
+from django.shortcuts import render, redirect
+from .models import Empresas, Documento, Metricas
 from django.contrib.messages import constants
 from django.contrib import messages
 
@@ -25,8 +25,20 @@ def cadastrar_empresa(request):
         pitch = request.FILES.get('pitch')
         logo = request.FILES.get('logo')
         
-        #TODO: fazer validação dos campos
-        #TODO: Realizar os filtros das empresas
+        if not nome or not cnpj or not site or not tempo_existencia or not descricao or not data_final or not percentual_equity or not estagio or not area or not publico_alvo or not valor:
+            messages.add_message(request, constants.ERROR, 'Todos os campos devem ser preenchidos')
+            return redirect('/empresarios/cadastrar_empresa')
+
+        if len(cnpj) != 14:
+            messages.add_message(request, constants.ERROR, 'CNPJ inválido')
+            return redirect('/empresarios/cadastrar_empresa')
+
+        try:
+            percentual_equity = float(percentual_equity)
+            valor = float(valor)
+        except ValueError:
+            messages.add_message(request, constants.ERROR, 'Percentual de equity e valor devem ser numéricos')
+            return redirect('/empresarios/cadastrar_empresa')
 
         try:
             empresa = Empresas(
@@ -52,16 +64,79 @@ def cadastrar_empresa(request):
         
         messages.add_message(request, constants.SUCCESS, 'Empresa criada com sucesso')
         return redirect('/empresarios/cadastrar_empresa')
-    
+
 def listar_empresas(request):
     if not request.user.is_authenticated:
         return redirect("/usuarios/logar")
     
     if request.method == "GET":
         empresas = Empresas.objects.filter(user=request.user)
+        
+        nome_empresa = request.GET.get('empresa')
+        
+        if nome_empresa:
+            empresas = empresas.filter(nome__icontains=nome_empresa)
+        
         return render(request, 'listar_empresas.html', {'empresas': empresas})
-    
+
+
 def empresa(request, id):
     empresa = Empresas.objects.get(id=id)
+    if empresa.user != request.user:
+        messages.add_message(request, constants.ERROR,'Essa empresa não corresponde a sua conta.')
+        return redirect(f'/empresarios/listar_empresas')
+
     if request.method == "GET":
-        return render(request, 'empresa.html', {'empresa': empresa})
+        documentos = Documento.objects.filter(empresa=empresa)
+        return render(request, 'empresa.html', {'empresa': empresa, 'documentos': documentos})
+    
+def add_doc(request, id):
+    empresa = Empresas.objects.get(id=id)
+    titulo = request.POST.get('titulo')
+    arquivo = request.FILES.get('arquivo')
+    extensao = arquivo.name.split('.')
+    
+    if empresa.user != request.user:
+        messages.add_message(request, constants.ERROR,'Essa empresa não corresponde a sua conta.')
+        return redirect(f'/empresarios/listar_empresas')
+    
+    if extensao[1] != 'pdf':
+        messages.add_message(request, constants.ERROR, "Envie apenas PDF's")
+        return redirect(f'/empresarios/empresa/{empresa.id}')
+    
+    if not arquivo:
+        messages.add_message(request, constants.ERROR, "Envie um arquivo")
+        return redirect(f'/empresarios/empresa/{empresa.id}')
+        
+    documento = Documento(
+        empresa=empresa,
+        titulo=titulo,
+        arquivo=arquivo
+    )
+    documento.save()
+    messages.add_message(request, constants.SUCCESS, "Arquivo cadastrado com sucesso")
+    return redirect(f'/empresarios/empresa/{empresa.id}')
+
+def excluir_dc(request, id):
+    documento = Documento.objects.get(id=id)
+    if documento.empresa.user != request.user:
+        messages.add_message(request, constants.ERROR, "Esse documento não é seu")
+        return redirect(f'/empresarios/empresa/{empresa.id}')
+    documento.delete()
+    messages.add_message(request, constants.SUCCESS, "Documento excluído com sucesso")
+    return redirect(f'/empresarios/empresa/{documento.empresa.id}')
+
+def add_metrica(request, id):
+    empresa = Empresas.objects.get(id=id)
+    titulo = request.POST.get('titulo')
+    valor = request.POST.get('valor')
+    
+    metrica = Metricas(
+        empresa=empresa,
+        titulo=titulo,
+        valor=valor
+    )
+    metrica.save()
+
+    messages.add_message(request, constants.SUCCESS, "Métrica cadastrada com sucesso")
+    return redirect(f'/empresarios/empresa/{empresa.id}')
