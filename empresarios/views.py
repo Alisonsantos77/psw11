@@ -1,4 +1,6 @@
 from django.shortcuts import render, redirect
+from django.http import HttpResponse
+from investidores.models import PropostaInvestimento
 from .models import Empresas, Documento, Metricas
 from django.contrib.messages import constants
 from django.contrib import messages
@@ -88,7 +90,27 @@ def empresa(request, id):
 
     if request.method == "GET":
         documentos = Documento.objects.filter(empresa=empresa)
-        return render(request, 'empresa.html', {'empresa': empresa, 'documentos': documentos})
+        proposta_investimentos = PropostaInvestimento.objects.filter(empresa=empresa)
+        percentual_vendido = 0
+        for pi in proposta_investimentos:
+            if pi.status == 'PA':
+                percentual_vendido = percentual_vendido + pi.percentual
+                
+        # Maneira eficiente
+        total_captado = sum(proposta_investimentos.filter(status='PA').values_list('valor', flat=True))
+        valuation_atual = (100 * float(total_captado)) / float(percentual_vendido) if percentual_vendido != 0 else 0
+
+        proposta_investimentos_enviada = proposta_investimentos.filter(status='PE')
+        return render(request,
+                      'empresa.html',
+                      {
+                    'empresa': empresa,
+                    'documentos': documentos,
+                    'proposta_investimentos_enviada': proposta_investimentos_enviada,
+                    'percentual_vendido': int(percentual_vendido), 
+                    'total_captado': total_captado,
+                    'valuation_atual': valuation_atual
+                    })
     
 def add_doc(request, id):
     empresa = Empresas.objects.get(id=id)
@@ -140,3 +162,19 @@ def add_metrica(request, id):
 
     messages.add_message(request, constants.SUCCESS, "Métrica cadastrada com sucesso")
     return redirect(f'/empresarios/empresa/{empresa.id}')
+
+def gerenciar_proposta(request, id):
+    acao = request.GET.get('acao')
+    pi = PropostaInvestimento.objects.get(id=id)
+
+    if acao == 'aceitar':
+        messages.add_message(request, constants.SUCCESS, 'Proposta aceita')
+        pi.status = 'PA'
+    elif acao == 'recusar':
+        messages.add_message(request, constants.SUCCESS, 'Proposta recusada')
+        pi.status = 'PR'
+        
+
+    pi.save()
+    return redirect(f'/empresarios/empresa/{pi.empresa.id}')
+    #TODO: Verificar sempre se o usuario está logado
